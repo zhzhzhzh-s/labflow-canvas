@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import base64
+import errno
 import json
 import mimetypes
 import os
@@ -551,7 +552,20 @@ def lan_ip():
 
 def main():
     load_boards()
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as exc:
+        if exc.errno in (errno.EADDRINUSE, 10048):
+            print(f"[canvas] 端口 {PORT} 已经有画布服务在运行，直接打开浏览器。")
+            if os.environ.get("LABFLOW_OPEN"):
+                try:
+                    import webbrowser
+
+                    webbrowser.open(f"http://127.0.0.1:{PORT}/")
+                except Exception:  # noqa: BLE001
+                    pass
+            return
+        raise
     server.daemon_threads = True
     print(f"[canvas] 实验画布共享服务已启动 → http://127.0.0.1:{PORT}")
     print(f"[canvas] 数据目录：{DATA}")
