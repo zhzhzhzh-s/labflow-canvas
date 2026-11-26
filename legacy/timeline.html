@@ -1,0 +1,1279 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>实验流 · 极简任务流</title>
+    <style>
+      :root {
+        --paper: #f5f2ea;
+        --card: #fffdf8;
+        --ink: #23262b;
+        --ink-soft: #4d4a42;
+        --muted: #8a8270;
+        --line: #e2dbca;
+        --line-strong: #d3cab5;
+        --accent: #2f6f5e;
+        --accent-soft: #e6f0ea;
+        --experiment: #2f6f5e;
+        --summary: #9a7620;
+        --task: #3f6c9a;
+        --material: #8a5a1e;
+        --danger: #a8462b;
+        --radius: 14px;
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+        --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+      }
+
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        font-family: var(--font);
+        color: var(--ink);
+        background: var(--paper);
+        background-image: radial-gradient(circle, #e7e1d2 1px, transparent 1px);
+        background-size: 26px 26px;
+        line-height: 1.6;
+      }
+      [hidden] { display: none !important; }
+      button { font: inherit; color: inherit; }
+
+      /* ---------- 顶栏 ---------- */
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        background: rgba(255, 253, 248, 0.92);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(10px);
+      }
+      .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: 0.02em; }
+      .brand-mark {
+        width: 22px; height: 22px; border-radius: 7px; background: var(--accent);
+        position: relative; flex: none;
+      }
+      .brand-mark::after {
+        content: ""; position: absolute; inset: 6px;
+        border-left: 2px solid #fffdf8; border-bottom: 2px solid #fffdf8;
+      }
+      .brand small { font-weight: 500; color: var(--muted); font-size: 11px; margin-left: 2px; }
+      .grow { flex: 1; }
+      .save-state { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+      .save-state.dirty { color: var(--summary); }
+
+      .btn {
+        height: 32px; padding: 0 11px; border-radius: 8px;
+        border: 1px solid var(--line-strong); background: #fbf8ef; color: var(--ink-soft);
+        font-size: 13px; cursor: pointer; white-space: nowrap;
+      }
+      .btn:hover { background: #f1ecdf; }
+      .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .btn.primary:hover { background: #275f50; }
+      .btn.slim { height: 28px; font-size: 12px; padding: 0 9px; }
+
+      .menu { position: relative; }
+      .menu > .btn { display: inline-flex; align-items: center; }
+      .menu-pop {
+        position: absolute; right: 0; top: calc(100% + 6px); min-width: 178px;
+        background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+        box-shadow: 0 18px 40px -22px rgba(50, 40, 20, 0.55);
+        padding: 5px; display: none; z-index: 30;
+      }
+      .menu:hover .menu-pop, .menu:focus-within .menu-pop { display: block; }
+      .menu-pop button {
+        display: block; width: 100%; text-align: left; border: 0; background: transparent;
+        padding: 8px 10px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--ink-soft);
+      }
+      .menu-pop button:hover { background: #f3eee1; }
+      .menu-pop small { display: block; color: var(--muted); font-size: 11px; }
+
+      /* ---------- 主体 ---------- */
+      .wrap { max-width: 900px; margin: 0 auto; padding: 30px 22px 90px; }
+      .board-head { margin-bottom: 8px; }
+      .board-title {
+        margin: 0 0 8px; font-size: 27px; line-height: 1.3; font-weight: 700;
+        letter-spacing: 0.01em; outline: none; border-radius: 8px; padding: 2px 6px; margin-left: -6px;
+      }
+      .board-title:hover { background: #efe9da; }
+      .board-title:focus { background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); }
+      .goal {
+        font-size: 14px; line-height: 1.75; color: var(--ink-soft); outline: none;
+        border-radius: 8px; padding: 4px 6px; margin-left: -6px; min-height: 30px; white-space: pre-wrap;
+      }
+      .goal:hover { background: #f0ebde; }
+      .goal:focus { background: #fff; box-shadow: inset 0 0 0 1px var(--line-strong); }
+      .goal:empty::before { content: "一句话说清目标：要验证什么、做到哪一步"; color: #b3ab99; }
+      .board-title:empty::before { content: "给这条实验线起个名字"; color: #b3ab99; }
+
+      .sample-chip {
+        display: inline-flex; align-items: center; gap: 8px; margin-top: 12px;
+        padding: 5px 10px; border-radius: 999px; background: #f6efdc; border: 1px solid #e7d9b8;
+        color: #7d6425; font-size: 12px;
+      }
+      .sample-chip button {
+        border: 0; background: transparent; color: #8a5a1e; text-decoration: underline;
+        cursor: pointer; font-size: 12px; padding: 0;
+      }
+
+      /* ---------- 时间轴 ---------- */
+      .timeline { list-style: none; margin: 26px 0 0; padding: 0; }
+      .step { display: grid; grid-template-columns: 74px 1fr; gap: 12px; position: relative; padding-bottom: 20px; }
+      .step::before {
+        content: ""; position: absolute; left: 38px; top: 26px; bottom: 0; width: 2px;
+        background: linear-gradient(var(--line-strong), var(--line));
+      }
+      .step:last-child::before { display: none; }
+      .rail { position: relative; padding-top: 16px; display: flex; flex-direction: column; align-items: flex-start; }
+      .dot {
+        width: 13px; height: 13px; border-radius: 50%; margin-left: 32px;
+        background: var(--experiment); box-shadow: 0 0 0 5px var(--paper); position: relative; z-index: 1;
+      }
+      .step[data-kind="summary"] .dot { background: var(--summary); border-radius: 3px; transform: rotate(45deg); }
+      .step[data-kind="task"] .dot { background: var(--task); }
+      .step[data-kind="material"] .dot { background: var(--material); }
+      .rail-date {
+        margin-left: 26px; margin-top: 7px; font-family: var(--mono);
+        font-size: 10.5px; color: var(--muted); letter-spacing: 0.03em;
+      }
+
+      .card {
+        background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+        padding: 12px 16px 14px; box-shadow: 0 1px 2px rgba(60, 50, 30, 0.05), 0 10px 26px -24px rgba(60, 50, 30, 0.5);
+        position: relative; transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+      .card::before {
+        content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px;
+        border-radius: 0 3px 3px 0; background: var(--experiment); opacity: 0.55;
+      }
+      .step[data-kind="summary"] .card { background: #fbf7ea; border-color: #e8dcc0; }
+      .step[data-kind="summary"] .card::before { background: var(--summary); }
+      .step[data-kind="task"] .card::before { background: var(--task); }
+      .step[data-kind="material"] .card::before { background: var(--material); }
+      .card.drag-over { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(47, 111, 94, 0.12); }
+      .card.dragging { opacity: 0.45; }
+
+      .card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .kind {
+        appearance: none; border: 1px solid transparent; border-radius: 999px;
+        background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600;
+        padding: 2px 9px; cursor: pointer; outline: none;
+      }
+      .step[data-kind="summary"] .kind { background: #f3e8c8; color: #7d6425; }
+      .step[data-kind="task"] .kind { background: #e2eaf2; color: #33587c; }
+      .step[data-kind="material"] .kind { background: #f0e2cc; color: #7d5218; }
+      .date {
+        border: 1px solid transparent; background: transparent; border-radius: 6px;
+        font-family: var(--mono); font-size: 11px; color: var(--muted); padding: 1px 4px; outline: none;
+      }
+      .date:hover { border-color: var(--line); background: #faf6eb; }
+      .date:focus { border-color: var(--accent); background: #fff; }
+      .owner-wrap {
+        display: inline-flex; align-items: center; gap: 4px; color: var(--muted);
+        font-size: 11px; min-width: 0;
+      }
+      .owner {
+        border: 1px solid transparent; background: transparent; border-radius: 6px;
+        font-size: 11px; color: var(--ink-soft); padding: 1px 4px; width: 132px; outline: none;
+      }
+      .owner:hover { border-color: var(--line); background: #faf6eb; }
+      .owner:focus { border-color: var(--accent); background: #fff; }
+      .owner::placeholder { color: #b6ae9c; }
+      .icon-btn {
+        border: 0; background: transparent; color: var(--muted); cursor: pointer;
+        border-radius: 6px; line-height: 1; padding: 4px 5px; font-size: 14px;
+      }
+      .icon-btn:hover { background: #efe9da; color: var(--ink); }
+      .del:hover { color: var(--danger); background: #f7e6e0; }
+      .grip { cursor: grab; letter-spacing: 1px; }
+      .grip:active { cursor: grabbing; }
+
+      .title {
+        margin-top: 4px; font-size: 16.5px; font-weight: 650; line-height: 1.45;
+        outline: none; border-radius: 6px; padding: 2px 6px; margin-left: -6px; min-height: 26px;
+      }
+      .title:empty::before { content: attr(data-ph); color: #b3ab99; font-weight: 400; }
+      .title:focus { background: #fffef9; box-shadow: inset 0 0 0 1px #e8e2d2; }
+
+      .body {
+        margin-top: 2px; font-size: 13.5px; line-height: 1.75; color: var(--ink-soft);
+        outline: none; border-radius: 6px; padding: 3px 6px; margin-left: -6px;
+        white-space: pre-wrap; min-height: 24px;
+      }
+      .body:empty::before { content: attr(data-ph); color: #b6ae9c; }
+      .body:focus { background: #fffef9; box-shadow: inset 0 0 0 1px #e8e2d2; }
+      .step[data-kind="summary"] .body { font-size: 14px; color: #4a4231; }
+
+      .outcomes { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+      .step[data-kind="summary"] .outcomes { display: none; }
+      .outcome { display: flex; gap: 8px; align-items: flex-start; }
+      .outcome .label {
+        flex: none; width: 42px; font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted);
+        padding-top: 3px; text-align: right;
+      }
+      .outcome > div {
+        flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.65; color: var(--ink-soft);
+        background: #faf7ee; border: 1px solid #eee7d6; border-radius: 8px;
+        padding: 3px 9px; outline: none; white-space: pre-wrap; min-height: 25px;
+      }
+      .outcome > div:empty::before { content: attr(data-ph); color: #b9b09c; }
+      .outcome > div:focus { background: #fff; border-color: #cfc6b2; }
+      .step[data-kind="summary"] .outcome { display: none; }
+
+      .files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .file-chip {
+        display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+        background: #f3eedf; border: 1px solid #e6ddc8; border-radius: 999px;
+        padding: 3px 4px 3px 9px; font-size: 12px; color: var(--ink-soft); cursor: pointer;
+      }
+      .file-chip:hover { background: #ece4d1; border-color: #d9cdb2; }
+      .file-ext {
+        font-size: 9px; font-weight: 700; letter-spacing: 0.03em; color: #7d5218;
+        background: #e9dfc6; border-radius: 4px; padding: 2px 4px;
+      }
+      .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+      .file-size { color: var(--muted); font-size: 10.5px; font-family: var(--mono); }
+      .file-x {
+        border: 0; background: transparent; color: var(--muted); cursor: pointer;
+        font-size: 13px; line-height: 1; padding: 0 3px; border-radius: 999px;
+      }
+      .file-x:hover { color: var(--danger); background: #f7e6e0; }
+
+      .add-file {
+        margin-top: 9px; border: 1px dashed var(--line-strong); background: transparent;
+        color: var(--muted); border-radius: 999px; padding: 2px 10px; font-size: 11.5px; cursor: pointer;
+      }
+      .add-file:hover { color: var(--accent); border-color: var(--accent); }
+
+      .drop-hint {
+        position: absolute; inset: 0; border-radius: var(--radius);
+        border: 2px dashed var(--accent); background: rgba(47, 111, 94, 0.06);
+        display: none; align-items: center; justify-content: center;
+        font-size: 13px; color: var(--accent); font-weight: 600; pointer-events: none;
+      }
+      .card.drag-over .drop-hint { display: flex; }
+
+      /* ---------- 底部操作 ---------- */
+      .add-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 0 86px; }
+      .add-main {
+        height: 38px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--accent);
+        background: var(--accent); color: #fff; font-size: 13.5px; cursor: pointer;
+      }
+      .add-main:hover { background: #275f50; }
+      .add-sub {
+        height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong);
+        background: #fbf8ef; color: var(--ink-soft); font-size: 13px; cursor: pointer;
+      }
+      .add-sub:hover { background: #f1ecdf; }
+
+      .empty {
+        margin-top: 26px; border: 1px dashed var(--line-strong); border-radius: 18px;
+        background: rgba(255, 253, 248, 0.7); padding: 34px 26px; text-align: center;
+      }
+      .empty h2 { margin: 0 0 6px; font-size: 18px; }
+      .empty p { margin: 0 auto 16px; color: var(--muted); font-size: 13px; max-width: 460px; }
+      .empty .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+      .footer { margin-top: 34px; font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.9; }
+      .footer a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+
+      /* ---------- 提示 ---------- */
+      .toast {
+        position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+        z-index: 60; display: flex; align-items: center; gap: 12px;
+        background: rgba(35, 38, 43, 0.94); color: #f5f0e3; padding: 9px 14px;
+        border-radius: 999px; font-size: 12.5px; box-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.6);
+        max-width: min(92vw, 560px);
+      }
+      .toast button {
+        border: 0; background: transparent; color: #ffd9a8; cursor: pointer;
+        font-size: 12.5px; text-decoration: underline; white-space: nowrap; padding: 0;
+      }
+      .toast.error { background: #8c3f22; }
+
+      /* ---------- 响应式 ---------- */
+      @media (max-width: 640px) {
+        .topbar { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+        .save-state { display: none; }
+        .wrap { padding: 20px 12px 80px; }
+        .board-title { font-size: 22px; }
+        .step { grid-template-columns: 40px 1fr; gap: 6px; }
+        .step::before { left: 19px; }
+        .dot { margin-left: 13px; }
+        .rail-date { display: none; }
+        .add-row { margin-left: 46px; }
+        .owner { width: 96px; }
+        .file-name { max-width: 130px; }
+      }
+
+      /* ---------- 打印 ---------- */
+      @media print {
+        body { background: #fff; }
+        .topbar, .add-row, .add-file, .grip, .del, .file-x, .sample-chip, .footer, .toast { display: none !important; }
+        .wrap { max-width: none; padding: 0; }
+        .card { box-shadow: none; break-inside: avoid; }
+        .step { break-inside: avoid; }
+        .outcome > div { border: 1px solid #ddd; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>实验流</span>
+        <small>极简任务流</small>
+      </div>
+      <span class="grow"></span>
+      <span id="saveState" class="save-state">已保存</span>
+      <button id="btnSort" class="btn slim" type="button" title="按日期从早到晚重排">按日期重排</button>
+      <div class="menu">
+        <button class="btn slim" type="button">导出</button>
+        <div class="menu-pop">
+          <button type="button" data-export="json">
+            JSON 备份 <small>可以再导回来，带附件</small>
+          </button>
+          <button type="button" data-export="md">
+            Markdown <small>发给老师/同事看的版本</small>
+          </button>
+        </div>
+      </div>
+      <button id="btnImport" class="btn slim" type="button">导入</button>
+      <button id="btnNew" class="btn primary slim" type="button">＋ 新建步骤</button>
+      <input id="importFile" type="file" accept=".json,application/json" hidden />
+    </header>
+
+    <main class="wrap">
+      <section class="board-head">
+        <h1 id="boardTitle" class="board-title" contenteditable="true" spellcheck="false"></h1>
+        <div id="boardGoal" class="goal" contenteditable="true" spellcheck="false"></div>
+        <div id="sampleChip" class="sample-chip" hidden>
+          这是示例数据，随便改。想从零开始就
+          <button id="btnClearSample" type="button">清空示例</button>
+        </div>
+      </section>
+
+      <ol id="timeline" class="timeline"></ol>
+
+      <section id="emptyState" class="empty" hidden>
+        <h2>从第一步开始</h2>
+        <p>
+          按时间往下加：每次实验、每条结论、每一份数据、每个分工。<br />
+          每一步都留两句话——「结论」和「下一步」，串起来就是你的实验设计。
+        </p>
+        <div class="row">
+          <button id="btnEmptyNew" class="btn primary" type="button">＋ 新建第一步</button>
+          <button id="btnEmptySample" class="btn" type="button">载入示例看看</button>
+        </div>
+      </section>
+
+      <div class="add-row" id="addRow" hidden>
+        <button id="btnAddStep" class="add-main" type="button">＋ 新建步骤</button>
+        <button id="btnAddSummary" class="add-sub" type="button">＋ 阶段总结</button>
+        <button id="btnAddTask" class="add-sub" type="button">＋ 分工</button>
+      </div>
+
+      <div class="footer">
+        数据只存在这个浏览器里（localStorage + IndexedDB）。换电脑请用「导出 JSON」。<br />
+        快捷键：<b>N</b> 新建步骤 · <b>Enter</b> 从标题跳到正文 · <b>Esc</b> 退出编辑 · 浏览器打印可存 PDF。
+      </div>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script>
+      (() => {
+        "use strict";
+
+        const STORAGE_KEY = "labflow.demo.v1";
+        const DB_NAME = "labflow-demo";
+        const DB_STORE = "files";
+        const KINDS = {
+          experiment: { label: "实验", color: "var(--experiment)" },
+          summary: { label: "总结", color: "var(--summary)" },
+          task: { label: "分工", color: "var(--task)" },
+          material: { label: "资料", color: "var(--material)" },
+        };
+
+        const $ = (sel, root = document) => root.querySelector(sel);
+        const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+        let model = null;
+        let saveTimer = null;
+        let toastTimer = null;
+        let dbPromise = null;
+        const memFiles = new Map();
+
+        // ---------- 小工具 ----------
+        function uid() {
+          if (window.crypto && crypto.randomUUID) return crypto.randomUUID().slice(0, 18);
+          return "id" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+        }
+
+        function escapeHtml(text) {
+          return String(text ?? "").replace(/[&<>"']/g, (ch) => (
+            { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+          ));
+        }
+
+        function formatSize(bytes) {
+          const n = Number(bytes) || 0;
+          if (n < 1024) return n + " B";
+          if (n < 1024 * 1024) return Math.round(n / 1024) + " KB";
+          return (n / 1024 / 1024).toFixed(1) + " MB";
+        }
+
+        function fileExt(name) {
+          const m = String(name || "").match(/\.([a-z0-9]{1,5})$/i);
+          return m ? m[1].toUpperCase() : "FILE";
+        }
+
+        function formatRailDate(date) {
+          if (!date) return "待定";
+          const parts = String(date).split("-");
+          if (parts.length !== 3) return date;
+          return parts[1] + "/" + parts[2];
+        }
+
+        function today() {
+          const d = new Date();
+          const pad = (n) => String(n).padStart(2, "0");
+          return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+        }
+
+        function nowLabel() {
+          const d = new Date();
+          const pad = (n) => String(n).padStart(2, "0");
+          return pad(d.getHours()) + ":" + pad(d.getMinutes());
+        }
+
+        // ---------- 存储：结构在 localStorage，附件在 IndexedDB ----------
+        function openDb() {
+          if (dbPromise) return dbPromise;
+          dbPromise = new Promise((resolve, reject) => {
+            try {
+              const req = indexedDB.open(DB_NAME, 1);
+              req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: "id" });
+              };
+              req.onsuccess = () => resolve(req.result);
+              req.onerror = () => reject(req.error);
+            } catch (err) {
+              reject(err);
+            }
+          });
+          return dbPromise;
+        }
+
+        async function putFile(record) {
+          try {
+            const db = await openDb();
+            await new Promise((resolve, reject) => {
+              const tx = db.transaction(DB_STORE, "readwrite");
+              tx.objectStore(DB_STORE).put(record);
+              tx.oncomplete = resolve;
+              tx.onerror = () => reject(tx.error);
+            });
+          } catch {
+            memFiles.set(record.id, record);
+          }
+        }
+
+        async function getFile(id) {
+          if (memFiles.has(id)) return memFiles.get(id);
+          try {
+            const db = await openDb();
+            return await new Promise((resolve, reject) => {
+              const tx = db.transaction(DB_STORE, "readonly");
+              const req = tx.objectStore(DB_STORE).get(id);
+              req.onsuccess = () => resolve(req.result || null);
+              req.onerror = () => reject(req.error);
+            });
+          } catch {
+            return memFiles.get(id) || null;
+          }
+        }
+
+        async function deleteFile(id) {
+          memFiles.delete(id);
+          try {
+            const db = await openDb();
+            await new Promise((resolve) => {
+              const tx = db.transaction(DB_STORE, "readwrite");
+              tx.objectStore(DB_STORE).delete(id);
+              tx.oncomplete = resolve;
+              tx.onerror = resolve;
+            });
+          } catch {
+            /* 内存里已经删了 */
+          }
+        }
+
+        function loadModel() {
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return null;
+            const data = JSON.parse(raw);
+            if (!data || !Array.isArray(data.steps)) return null;
+            return normalizeModel(data);
+          } catch {
+            return null;
+          }
+        }
+
+        function normalizeStep(step, index) {
+          return {
+            id: step.id || uid(),
+            kind: KINDS[step.kind] ? step.kind : "experiment",
+            date: typeof step.date === "string" ? step.date : "",
+            title: String(step.title ?? ""),
+            owner: String(step.owner ?? ""),
+            body: String(step.body ?? ""),
+            conclusion: String(step.conclusion ?? ""),
+            next: String(step.next ?? ""),
+            files: Array.isArray(step.files)
+              ? step.files.map((f) => ({
+                  id: f.id || uid(),
+                  name: String(f.name ?? "文件"),
+                  type: String(f.type ?? ""),
+                  size: Number(f.size) || 0,
+                }))
+              : [],
+            order: index,
+          };
+        }
+
+        function normalizeModel(data) {
+          return {
+            v: 1,
+            title: String(data.title ?? "未命名实验线"),
+            goal: String(data.goal ?? ""),
+            isSample: Boolean(data.isSample),
+            steps: (data.steps || []).map(normalizeStep),
+          };
+        }
+
+        function persistNow() {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(model));
+            setSaveState("已保存 · " + nowLabel(), false);
+          } catch (err) {
+            setSaveState("保存失败", true);
+            toast("本地存储满了：先导出 JSON 备份，再删掉一些大附件", true);
+          }
+        }
+
+        function markDirty() {
+          setSaveState("保存中…", true);
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(persistNow, 280);
+        }
+
+        function setSaveState(text, dirty) {
+          const el = $("#saveState");
+          el.textContent = text;
+          el.classList.toggle("dirty", Boolean(dirty));
+        }
+
+        // ---------- 渲染 ----------
+        function render() {
+          $("#boardTitle").textContent = model.title;
+          $("#boardGoal").textContent = model.goal;
+          $("#sampleChip").hidden = !model.isSample;
+
+          const list = $("#timeline");
+          list.textContent = "";
+          for (const step of model.steps) list.append(renderStep(step));
+
+          const isEmpty = model.steps.length === 0;
+          $("#emptyState").hidden = !isEmpty;
+          $("#addRow").hidden = isEmpty;
+          document.title = (model.title || "实验流") + " · 实验流";
+        }
+
+        function renderStep(step) {
+          const li = document.createElement("li");
+          li.className = "step";
+          li.dataset.id = step.id;
+          li.dataset.kind = step.kind;
+          li.innerHTML = `
+            <div class="rail">
+              <span class="dot"></span>
+              <span class="rail-date"></span>
+            </div>
+            <article class="card">
+              <header class="card-head">
+                <select class="kind" aria-label="类型">${Object.entries(KINDS)
+                  .map(([key, meta]) => `<option value="${key}">${meta.label}</option>`)
+                  .join("")}</select>
+                <input class="date" type="date" aria-label="日期" />
+                <span class="owner-wrap">👤 <input class="owner" maxlength="40" placeholder="谁负责 / 和谁配合" aria-label="负责人" /></span>
+                <span class="grow"></span>
+                <button class="icon-btn grip" type="button" title="拖动排序" draggable="true">⠿</button>
+                <button class="icon-btn del" type="button" title="删除这一步">×</button>
+              </header>
+              <div class="title" contenteditable="true" spellcheck="false" data-field="title" data-ph="这一步做了什么？"></div>
+              <div class="body" contenteditable="true" spellcheck="false" data-field="body" data-ph="条件、参数、现象、数据…"></div>
+              <div class="outcomes">
+                <div class="outcome"><span class="label">结论</span><div class="concl" contenteditable="true" spellcheck="false" data-field="conclusion" data-ph="这一步得到什么"></div></div>
+                <div class="outcome"><span class="label">下一步</span><div class="next" contenteditable="true" spellcheck="false" data-field="next" data-ph="接下来做什么"></div></div>
+              </div>
+              <div class="files"></div>
+              <button class="add-file" type="button">＋ 添加数据文件</button>
+              <div class="drop-hint">松手，挂到这一步下面</div>
+              <input class="file-input" type="file" multiple hidden />
+            </article>
+          `;
+
+          li.querySelector(".kind").value = step.kind;
+          li.querySelector(".date").value = step.date || "";
+          li.querySelector(".owner").value = step.owner || "";
+          li.querySelector(".rail-date").textContent = formatRailDate(step.date);
+          li.querySelector(".title").textContent = step.title;
+          li.querySelector(".body").textContent = step.body;
+          li.querySelector(".concl").textContent = step.conclusion;
+          li.querySelector(".next").textContent = step.next;
+          renderFiles(li, step);
+
+          return li;
+        }
+
+        function renderFiles(li, step) {
+          const box = li.querySelector(".files");
+          box.textContent = "";
+          for (const file of step.files) {
+            const chip = document.createElement("span");
+            chip.className = "file-chip";
+            chip.dataset.fileId = file.id;
+            chip.title = file.name + " · " + formatSize(file.size);
+            chip.innerHTML = `
+              <span class="file-ext">${escapeHtml(fileExt(file.name))}</span>
+              <span class="file-name">${escapeHtml(file.name)}</span>
+              <span class="file-size">${escapeHtml(formatSize(file.size))}</span>
+              <button class="file-x" type="button" title="移除这个附件">×</button>
+            `;
+            box.append(chip);
+          }
+        }
+
+        // ---------- 查找 ----------
+        function findStep(id) {
+          return model.steps.find((s) => s.id === id) || null;
+        }
+
+        function stepOf(node) {
+          const li = node.closest(".step");
+          return li ? findStep(li.dataset.id) : null;
+        }
+
+        // ---------- 编辑 ----------
+        function bindEditing() {
+          const list = $("#timeline");
+
+          list.addEventListener("input", (event) => {
+            const field = event.target.dataset?.field;
+            if (!field) return;
+            const step = stepOf(event.target);
+            if (!step) return;
+            step[field] = event.target.textContent;
+            markDirty();
+          });
+
+          list.addEventListener("paste", (event) => {
+            if (!event.target.isContentEditable) return;
+            const text = event.clipboardData?.getData("text/plain");
+            if (text == null) return;
+            event.preventDefault();
+            document.execCommand("insertText", false, text);
+          });
+
+          list.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && event.target.classList.contains("title")) {
+              event.preventDefault();
+              event.target.closest(".card")?.querySelector(".body")?.focus();
+            }
+            if (event.key === "Escape") event.target.blur();
+          });
+
+          list.addEventListener("change", async (event) => {
+            const step = stepOf(event.target);
+            if (!step) return;
+
+            if (event.target.classList.contains("kind")) {
+              step.kind = event.target.value;
+              const li = event.target.closest(".step");
+              li.dataset.kind = step.kind;
+              markDirty();
+            } else if (event.target.classList.contains("date")) {
+              step.date = event.target.value;
+              event.target.closest(".step").querySelector(".rail-date").textContent = formatRailDate(step.date);
+              markDirty();
+            } else if (event.target.classList.contains("owner")) {
+              step.owner = event.target.value;
+              markDirty();
+            } else if (event.target.classList.contains("file-input")) {
+              const files = event.target.files;
+              event.target.value = "";
+              if (files && files.length) await addFiles(step.id, files);
+            }
+          });
+
+          list.addEventListener("input", (event) => {
+            if (!event.target.classList.contains("owner")) return;
+            const step = stepOf(event.target);
+            if (!step) return;
+            step.owner = event.target.value;
+            markDirty();
+          });
+
+          list.addEventListener("click", async (event) => {
+            const fileChip = event.target.closest(".file-chip");
+            if (fileChip) {
+              if (event.target.closest(".file-x")) {
+                event.stopPropagation();
+                const step = stepOf(fileChip);
+                if (!step) return;
+                const index = step.files.findIndex((f) => f.id === fileChip.dataset.fileId);
+                if (index < 0) return;
+                const [removed] = step.files.splice(index, 1);
+                markDirty();
+                renderFiles(fileChip.closest(".step"), step);
+                await deleteFile(removed.id);
+                toast("已移除附件「" + removed.name + "」");
+                return;
+              }
+              await openFile(fileChip.dataset.fileId);
+              return;
+            }
+
+            if (event.target.closest(".del")) {
+              const step = stepOf(event.target);
+              if (step) deleteStep(step.id);
+              return;
+            }
+
+            if (event.target.closest(".add-file")) {
+              event.target.closest(".card").querySelector(".file-input").click();
+            }
+          });
+
+          // 拖文件到卡片
+          let dragDepth = 0;
+          list.addEventListener("dragenter", (event) => {
+            if (!event.dataTransfer?.types?.includes("Files")) return;
+            const card = event.target.closest(".card");
+            if (!card) return;
+            dragDepth += 1;
+            card.classList.add("drag-over");
+          });
+          list.addEventListener("dragover", (event) => {
+            if (!event.dataTransfer?.types?.includes("Files")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          });
+          list.addEventListener("dragleave", (event) => {
+            const card = event.target.closest(".card");
+            if (card) {
+              dragDepth = Math.max(0, dragDepth - 1);
+              if (dragDepth === 0) card.classList.remove("drag-over");
+            }
+          });
+          list.addEventListener("drop", async (event) => {
+            if (!event.dataTransfer?.types?.includes("Files")) return;
+            const card = event.target.closest(".card");
+            if (!card) return;
+            event.preventDefault();
+            dragDepth = 0;
+            card.classList.remove("drag-over");
+            const step = stepOf(card);
+            if (step && event.dataTransfer.files.length) await addFiles(step.id, event.dataTransfer.files);
+          });
+
+          // 拖动排序
+          let dragId = null;
+          list.addEventListener("dragstart", (event) => {
+            const grip = event.target.closest(".grip");
+            if (!grip) return;
+            dragId = grip.closest(".step").dataset.id;
+            grip.closest(".step").querySelector(".card").classList.add("dragging");
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", dragId);
+          });
+          list.addEventListener("dragend", () => {
+            dragId = null;
+            $$(".card.dragging", list).forEach((el) => el.classList.remove("dragging"));
+            $$(".card.drop-before, .card.drop-after", list).forEach((el) => {
+              el.classList.remove("drop-before", "drop-after");
+            });
+          });
+          list.addEventListener("dragover", (event) => {
+            if (!dragId) return;
+            const overStep = event.target.closest(".step");
+            if (!overStep) return;
+            event.preventDefault();
+            const card = overStep.querySelector(".card");
+            const rect = card.getBoundingClientRect();
+            const before = event.clientY < rect.top + rect.height / 2;
+            $$(".card.drop-before, .card.drop-after", list).forEach((el) => {
+              el.classList.remove("drop-before", "drop-after");
+            });
+            card.classList.add(before ? "drop-before" : "drop-after");
+          });
+          list.addEventListener("drop", (event) => {
+            if (!dragId) return;
+            const overStep = event.target.closest(".step");
+            if (!overStep) return;
+            event.preventDefault();
+            const card = overStep.querySelector(".card");
+            const before = card.classList.contains("drop-before");
+            reorder(dragId, overStep.dataset.id, before);
+            dragId = null;
+          });
+        }
+
+        function reorder(dragId, overId, before) {
+          if (dragId === overId) return;
+          const from = model.steps.findIndex((s) => s.id === dragId);
+          const target = model.steps.findIndex((s) => s.id === overId);
+          if (from < 0 || target < 0) return;
+          const [moved] = model.steps.splice(from, 1);
+          let insertAt = model.steps.findIndex((s) => s.id === overId);
+          if (!before) insertAt += 1;
+          model.steps.splice(insertAt, 0, moved);
+          markDirty();
+          render();
+        }
+
+        // ---------- 文件 ----------
+        async function addFiles(stepId, fileList) {
+          const step = findStep(stepId);
+          if (!step) return;
+          let added = 0;
+          for (const file of Array.from(fileList)) {
+            if (file.size > 25 * 1024 * 1024) {
+              toast("「" + file.name + "」超过 25MB，demo 先不收", true);
+              continue;
+            }
+            const record = {
+              id: uid(),
+              name: file.name,
+              type: file.type || "",
+              size: file.size,
+              blob: file,
+            };
+            await putFile(record);
+            step.files.push({ id: record.id, name: record.name, type: record.type, size: record.size });
+            added += 1;
+          }
+          if (added) {
+            markDirty();
+            const li = $('.step[data-id="' + stepId + '"]');
+            if (li) renderFiles(li, step);
+            toast("已挂上 " + added + " 个文件");
+          }
+        }
+
+        async function openFile(fileId) {
+          const record = await getFile(fileId);
+          if (!record || !record.blob) {
+            toast("这个文件在这个浏览器里读不到了（换过电脑或清了数据）", true);
+            return;
+          }
+          const url = URL.createObjectURL(record.blob);
+          const win = window.open(url, "_blank", "noopener");
+          if (!win) toast("浏览器拦了新窗口，允许弹窗后再点一次", true);
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+        }
+
+        // ---------- 增删 ----------
+        function addStep(kind = "experiment", { focus = true } = {}) {
+          const step = normalizeStep(
+            {
+              id: uid(),
+              kind,
+              date: kind === "summary" ? "" : today(),
+              title: kind === "summary" ? "阶段总结" : "",
+              body: "",
+            },
+            model.steps.length,
+          );
+          model.steps.push(step);
+          markDirty();
+          render();
+          if (focus) {
+            const li = $('.step[data-id="' + step.id + '"]');
+            const target = li?.querySelector(kind === "summary" ? ".body" : ".title");
+            if (target) {
+              target.focus();
+              const range = document.createRange();
+              range.selectNodeContents(target);
+              range.collapse(false);
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+            li?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+          return step;
+        }
+
+        function deleteStep(id) {
+          const index = model.steps.findIndex((s) => s.id === id);
+          if (index < 0) return;
+          const [removed] = model.steps.splice(index, 1);
+          markDirty();
+          render();
+          const title = removed.title || "未命名步骤";
+          showToast('已删除「' + title + '」', {
+            actionLabel: "撤销",
+            onAction: () => {
+              model.steps.splice(Math.min(index, model.steps.length), 0, removed);
+              markDirty();
+              render();
+            },
+          });
+        }
+
+        function sortByDate() {
+          const dated = model.steps.filter((s) => s.date).sort((a, b) => a.date.localeCompare(b.date));
+          const undated = model.steps.filter((s) => !s.date);
+          model.steps = dated.concat(undated);
+          markDirty();
+          render();
+          toast(undated.length ? "已按日期排好，没日期的放在最后" : "已按日期排好");
+        }
+
+        // ---------- 导入导出 ----------
+        function download(text, filename, mime) {
+          const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.append(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 10000);
+        }
+
+        function blobToDataUrl(blob) {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+          });
+        }
+
+        async function exportJson() {
+          const files = [];
+          for (const step of model.steps) {
+            for (const file of step.files) {
+              const record = await getFile(file.id);
+              if (!record || !record.blob) continue;
+              files.push({
+                id: file.id,
+                name: record.name,
+                type: record.type,
+                size: record.size,
+                dataUrl: await blobToDataUrl(record.blob),
+              });
+            }
+          }
+          const payload = {
+            app: "labflow",
+            v: 1,
+            exportedAt: new Date().toISOString(),
+            model,
+            files,
+          };
+          download(
+            JSON.stringify(payload, null, 2),
+            (model.title || "实验流") + ".json",
+            "application/json",
+          );
+          toast("已导出 JSON（含 " + files.length + " 个附件）");
+        }
+
+        function toMarkdown() {
+          const lines = [];
+          lines.push("# " + (model.title || "实验流"));
+          if (model.goal) {
+            lines.push("");
+            lines.push("> " + model.goal.replace(/\n/g, "\n> "));
+          }
+          for (const step of model.steps) {
+            lines.push("");
+            lines.push("---");
+            lines.push("");
+            const meta = [];
+            if (step.date) meta.push(step.date);
+            meta.push(KINDS[step.kind]?.label || "步骤");
+            if (step.owner) meta.push("负责人：" + step.owner);
+            lines.push("## " + (step.title || "未命名步骤"));
+            lines.push("");
+            lines.push("*" + meta.join(" · ") + "*");
+            if (step.body) {
+              lines.push("");
+              lines.push(step.body);
+            }
+            if (step.files.length) {
+              lines.push("");
+              lines.push("附件：" + step.files.map((f) => f.name).join("、"));
+            }
+            if (step.conclusion) {
+              lines.push("");
+              lines.push("**结论**：" + step.conclusion);
+            }
+            if (step.next) {
+              lines.push("");
+              lines.push("**下一步**：" + step.next);
+            }
+          }
+          return lines.join("\n") + "\n";
+        }
+
+        function exportMarkdown() {
+          download(toMarkdown(), (model.title || "实验流") + ".md", "text/markdown;charset=utf-8");
+          toast("已导出 Markdown");
+        }
+
+        async function importJson(file) {
+          const text = await file.text();
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            throw new Error("不是合法的 JSON");
+          }
+          const incoming = data?.model ?? data;
+          if (!incoming || !Array.isArray(incoming.steps)) {
+            throw new Error("这不像导出的实验流文件");
+          }
+          for (const item of Array.isArray(data?.files) ? data.files : []) {
+            try {
+              const response = await fetch(item.dataUrl);
+              const blob = await response.blob();
+              await putFile({
+                id: item.id,
+                name: item.name,
+                type: item.type || blob.type,
+                size: item.size || blob.size,
+                blob,
+              });
+            } catch {
+              /* 少一个附件不算失败 */
+            }
+          }
+          model = normalizeModel(incoming);
+          model.isSample = false;
+          render();
+          persistNow();
+          toast("导入完成：" + model.steps.length + " 步");
+        }
+
+        // ---------- 示例 ----------
+        async function loadSample() {
+          const csv = [
+            "批次,样品,pH,产率%",
+            "第一批,A,7.2,63",
+            "第一批,B,7.4,61",
+            "第一批,C,7.1,58",
+            "第一批,D,7.5,64",
+            "",
+            "备注：同一批内 pH 从 7.1 漂到 7.5，产率跟着晃，怀疑搅拌不均导致局部碱化。",
+          ].join("\n");
+          const csvId = uid();
+          await putFile({
+            id: csvId,
+            name: "第一批数据.csv",
+            type: "text/csv;charset=utf-8",
+            size: new Blob([csv]).size,
+            blob: new Blob([csv], { type: "text/csv;charset=utf-8" }),
+          });
+
+          model = normalizeModel({
+            title: "材料实验 · 10 → 11 月这条线",
+            goal: "目标：把产率从 60% 上下稳住，先确认问题是不是 pH 漂移，再决定下一批配方。",
+            isSample: true,
+            steps: [
+              {
+                kind: "experiment",
+                date: "2026-10-01",
+                title: "第一批：pH 7.2 基准组",
+                owner: "我 / 表征找师兄",
+                body: "条件：60℃、2h、pH 调到 7.2 之后开始计时。\n现象：前 30 分钟颜色正常，后面略浑；收率 63%，同一批四个样从 58% 到 64%。",
+                conclusion: "产率能到 63%，但批内波动 6 个点，重复性不够。",
+                next: "先别改配方，查 pH 漂移和搅拌；补做第 3 组做对照。",
+                files: [{ id: csvId, name: "第一批数据.csv", type: "text/csv", size: new Blob([csv]).size }],
+              },
+              {
+                kind: "summary",
+                date: "2026-10-08",
+                title: "阶段结论：问题更像 pH 漂移，不是配方本身",
+                owner: "我",
+                body: "把第一批四个样重新测了 pH：反应前统一 7.2，结束后从 7.1 到 7.5 不等，和产率高低对得上。\n\n所以下一批的重点不是换原料，而是把 pH 稳住，并加一组搅拌对照。",
+                conclusion: "",
+                next: "",
+                files: [],
+              },
+              {
+                kind: "experiment",
+                date: "2026-11-01",
+                title: "第二批：补做第 3 组 + 搅拌对照",
+                owner: "我 / 师弟配液",
+                body: "补做第 3 组：因为第一批 C 样 pH 偏高、产率最低，这次把它单独重跑。\n同时加一组搅拌转速对照（300 / 600 rpm），其他条件不动。",
+                conclusion: "600 rpm 组 pH 稳定在 7.2±0.05，产率 66%；300 rpm 组仍然漂。",
+                next: "下一批固定 600 rpm，再试 pH 7.0 和 7.4 两个点，看窗口有多宽。",
+                files: [],
+              },
+              {
+                kind: "task",
+                date: "2026-11-05",
+                title: "下一批分工",
+                owner: "我 / 师弟 / 师兄",
+                body: "我：定 pH 7.0/7.4 两个配方，写实验单。\n师弟：提前配液、校准 pH 计。\n师兄：周五下午做 XRD 表征，数据放这一步下面。",
+                conclusion: "",
+                next: "",
+                files: [],
+              },
+            ],
+          });
+          render();
+          persistNow();
+        }
+
+        // ---------- 提示 ----------
+        function showToast(message, options = {}) {
+          const toastEl = $("#toast");
+          toastEl.textContent = "";
+          toastEl.classList.toggle("error", Boolean(options.error));
+          const text = document.createElement("span");
+          text.textContent = message;
+          toastEl.append(text);
+          if (options.actionLabel && typeof options.onAction === "function") {
+            const action = document.createElement("button");
+            action.type = "button";
+            action.textContent = options.actionLabel;
+            action.addEventListener("click", () => {
+              toastEl.hidden = true;
+              options.onAction();
+            });
+            toastEl.append(action);
+          }
+          toastEl.hidden = false;
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(() => {
+            toastEl.hidden = true;
+          }, options.actionLabel ? 7000 : 3000);
+        }
+
+        function toast(message, isError) {
+          showToast(message, { error: Boolean(isError) });
+        }
+
+        // ---------- 顶栏与快捷键 ----------
+        function bindTopbar() {
+          $("#btnNew").addEventListener("click", () => addStep("experiment"));
+          $("#btnAddStep").addEventListener("click", () => addStep("experiment"));
+          $("#btnAddSummary").addEventListener("click", () => addStep("summary"));
+          $("#btnAddTask").addEventListener("click", () => addStep("task"));
+          $("#btnEmptyNew").addEventListener("click", () => addStep("experiment"));
+          $("#btnEmptySample").addEventListener("click", () => loadSample());
+          $("#btnSort").addEventListener("click", sortByDate);
+
+          $("#btnImport").addEventListener("click", () => {
+            $("#importFile").value = "";
+            $("#importFile").click();
+          });
+          $("#importFile").addEventListener("change", async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            try {
+              await importJson(file);
+            } catch (err) {
+              toast("导入失败：" + err.message, true);
+            }
+          });
+
+          $$("[data-export]").forEach((button) => {
+            button.addEventListener("click", async () => {
+              if (button.dataset.export === "md") exportMarkdown();
+              else await exportJson();
+            });
+          });
+
+          $("#btnClearSample").addEventListener("click", () => {
+            const backup = model;
+            model = normalizeModel({ title: "未命名实验线", goal: "", steps: [] });
+            render();
+            persistNow();
+            showToast("示例已清空，可以开始了", {
+              actionLabel: "撤销",
+              onAction: () => {
+                model = backup;
+                render();
+                persistNow();
+              },
+            });
+          });
+
+          const titleEl = $("#boardTitle");
+          titleEl.addEventListener("input", () => {
+            model.title = titleEl.textContent;
+            markDirty();
+          });
+          const goalEl = $("#boardGoal");
+          goalEl.addEventListener("input", () => {
+            model.goal = goalEl.textContent;
+            markDirty();
+          });
+
+          document.addEventListener("keydown", (event) => {
+            if (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
+            if (event.key.toLowerCase() === "n" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+              event.preventDefault();
+              addStep("experiment");
+            }
+          });
+        }
+
+        // ---------- 启动 ----------
+        async function boot() {
+          const stored = loadModel();
+          if (stored) {
+            model = stored;
+            render();
+          } else {
+            await loadSample();
+          }
+          bindTopbar();
+          bindEditing();
+
+          window.addEventListener("beforeunload", () => {
+            if (saveTimer) {
+              clearTimeout(saveTimer);
+              persistNow();
+            }
+          });
+        }
+
+        boot().catch((err) => {
+          console.error(err);
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            '<div style="position:fixed;inset:auto 20px 20px 20px;background:#8c3f22;color:#fff;padding:12px 16px;border-radius:10px;font-size:13px;z-index:99">启动失败：' +
+              escapeHtml(err.message) +
+              "</div>",
+          );
+        });
+      })();
+    </script>
+  </body>
+</html>
